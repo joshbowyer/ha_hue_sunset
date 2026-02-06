@@ -1,0 +1,120 @@
+blueprint:
+  name: Sunset Light Fade Off
+  description: 'Gradually fade lights to off after sunset with color temperature transition for multicolor lights'
+  domain: automation
+  input:
+    event:
+      name: Event
+      description: Sunset
+      selector:
+        select:
+          options:
+            - Sunset
+      default: Sunset
+    offset:
+      name: Offset
+      description: Offset from sunset time
+      default: '+1:00:00'
+      selector:
+        text:
+    lights:
+      name: Lights
+      description: The lights to fade
+      selector:
+        target:
+          entity:
+            domain: light
+    start_brightness:
+      name: Start brightness
+      description: Brightness at the beginning of the transition
+      default: 100
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: '%'
+    end_brightness:
+      name: End brightness
+      description: Brightness at the end of the transition (0 = off)
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: '%'
+    transition:
+      name: Transition time
+      description: Time to fade from start to end brightness
+      default: 1800
+      selector:
+        number:
+          min: 1
+          max: 3600
+          unit_of_measurement: seconds
+    start_color_temp:
+      name: Start color temperature
+      description: Color temperature at the beginning (for multicolor lights)
+      default: 4000
+      selector:
+        number:
+          min: 2000
+          max: 6500
+          unit_of_measurement: K
+    end_color_temp:
+      name: End color temperature
+      description: Color temperature at the end (warm sunset tones)
+      default: 2700
+      selector:
+        number:
+          min: 2000
+          max: 6500
+          unit_of_measurement: K
+    next_alarm:
+      name: Next alarm sensor
+      description: Sensor with timestamp of next alarm (set to 'none' for daily behavior)
+      default: none
+      selector:
+        entity:
+          domain: sensor
+          device_class: timestamp
+
+mode: single
+max_exceeded: silent
+
+trigger:
+  - platform: sun
+    event: !input event
+    offset: !input offset
+    id: sunset_trigger
+
+condition:
+  - condition: or
+    conditions:
+      - condition: state
+        entity_id: !input next_alarm
+        state: 'none'
+      - condition: template
+        value_template: "{{ (now() - as_timestamp(states('!input next_alarm'))) < 86400 }}"
+
+action:
+  - service: light.turn_on
+    target: !input lights
+    data:
+      brightness_pct: !input start_brightness
+      transition: !input transition
+      color_temp_kelvin: !input start_color_temp
+
+  - delay:
+      seconds: !input transition
+
+  - service: light.turn_on
+    target: !input lights
+    data:
+      brightness_pct: !input end_brightness
+      transition: 1
+      color_temp_kelvin: !input end_color_temp
+
+  - service: light.turn_off
+    target: !input lights
+    data:
+      transition: 1
