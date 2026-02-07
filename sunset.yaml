@@ -4,8 +4,8 @@ blueprint:
   domain: automation
   input:
     offset:
-      name: Offset
-      description: Offset from sunset time (e.g. +1:00:00 for 1 hour after)
+      name: Offset from sunset
+      description: Time offset from sunset (e.g. '+1:00:00' for 1 hour after sunset)
       default: '+1:00:00'
       selector:
         text:
@@ -69,7 +69,6 @@ trigger:
   - platform: sun
     event: sunset
     offset: !input offset
-    id: sunset_trigger
 
 action:
   - service: light.turn_on
