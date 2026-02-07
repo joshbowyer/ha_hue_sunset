@@ -4,81 +4,81 @@ blueprint:
     sunset or a given timestamp, then turns it off. Note: Requires date_time_iso
     sensor."
   domain: automation
-input:
-  light_entity:
-    name: Light entity
-    description: The light to control. Turning it off during the effect will keep it off.
-    selector:
-      entity:
-        domain: light
-  timestamp_sensor:
-    name: Target timestamp sensor
-    description: Sensor with timestamp of sunset trigger (e.g., next alarm or fixed
-      timestamp).
-    default: none
-    selector:
-      entity:
-        device_class: timestamp
-  manual_time:
-    name: Manual target time
-    description: Time to trigger sunset effect if timestamp_sensor is not set.
-    default: 19:00:00
-    selector:
-      time: {}
-  check_entity:
-    name: Additional entity to check before effect is triggered
-    description: If set, only triggers when this entity is 'on' or 'home'.
-    default: none
-    selector:
-      entity: {}
-  sunset_offset:
-    name: Sunset offset duration
-    description: Minutes before the target time or sunset to begin the effect.
-    default: 25
-    selector:
-      number:
-        min: 5
-        max: 60
-        step: 1
-        unit_of_measurement: min
-  start_brightness:
-    name: Start brightness (before sunset effect)
-    default: 254
-    selector:
-      number:
-        min: 5
-        max: 255
-        step: 1
-  end_brightness:
-    name: End brightness (at sunset or target)
-    default: 1
-    selector:
-      number:
-        min: 0
-        max: 255
-        step: 1
-  min_mired:
-    name: Lowest color temperature (warmest)
-    description: Minimum color temperature to use for sunset (warm end).
-    default: 500
-    selector:
-      number:
-        min: 0
-        max: 500
-        step: 5
-        unit_of_measurement: mired
-  pre_sunset_actions:
-    name: Pre-sunset actions
-    description: Optional actions before sunset effect starts.
-    default: []
-    selector:
-      action: {}
-  post_sunset_actions:
-    name: Post-sunset actions
-    description: Optional actions after sunset effect ends.
-    default: []
-    selector:
-      action: {}
+  input:
+    light_entity:
+      name: Light entity
+      description: The light to control. Turning it off during the effect will keep it off.
+      selector:
+        entity:
+          domain: light
+    timestamp_sensor:
+      name: Target timestamp sensor
+      description: Sensor with timestamp of sunset trigger (e.g., next alarm or fixed
+        timestamp).
+      default: none
+      selector:
+        entity:
+          device_class: timestamp
+    manual_time:
+      name: Manual target time
+      description: Time to trigger sunset effect if timestamp_sensor is not set.
+      default: 19:00:00
+      selector:
+        time: {}
+    check_entity:
+      name: Additional entity to check before effect is triggered
+      description: If set, only triggers when this entity is 'on' or 'home'.
+      default: none
+      selector:
+        entity: {}
+    sunset_offset:
+      name: Sunset offset duration
+      description: Minutes before the target time or sunset to begin the effect.
+      default: 25
+      selector:
+        number:
+          min: 5
+          max: 60
+          step: 1
+          unit_of_measurement: min
+    start_brightness:
+      name: Start brightness (before sunset effect)
+      default: 254
+      selector:
+        number:
+          min: 5
+          max: 255
+          step: 1
+    end_brightness:
+      name: End brightness (at sunset or target)
+      default: 1
+      selector:
+        number:
+          min: 0
+          max: 255
+          step: 1
+    min_mired:
+      name: Lowest color temperature (warmest)
+      description: Minimum color temperature to use for sunset (warm end).
+      default: 500
+      selector:
+        number:
+          min: 0
+          max: 500
+          step: 5
+          unit_of_measurement: mired
+    pre_sunset_actions:
+      name: Pre-sunset actions
+      description: Optional actions before sunset effect starts.
+      default: []
+      selector:
+        action: {}
+    post_sunset_actions:
+      name: Post-sunset actions
+      description: Optional actions after sunset effect ends.
+      default: []
+      selector:
+        action: {}
 variables:
   light_entity: light_entity
   sensor: timestamp_sensor
