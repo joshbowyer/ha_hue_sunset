@@ -1,17 +1,36 @@
 blueprint:
   name: Wake-down light with sunset effect
-  description: 'A fade-to-dim light automation with sunset color temperature effect. Starts X minutes before actual sunset. Note: Requires the Sun integration and sensor.date_time_iso (or use now()).'
+  description: 'A wake-down light with a brightness and color temperature sunset fade-out effect. Fades down starting X minutes before the target time (alarm sensor or manual time). Note: Requires date_time_iso sensor (or now()) and Sun integration if you want automatic sunset-based timing.'
   domain: automation
   input:
     light_entity:
       name: Light entity
-      description: The light to control during sunset fade. Turning it off during the effect will keep it off.
+      description: The light to control. Turning it off during the fade will keep it off. Color temperature range is auto-detected.
       selector:
         entity:
           domain: light
-    sunset_offset:
-      name: Start before sunset
-      description: The fade will start this many minutes before sunset.
+    timestamp_sensor:
+      name: Target timestamp sensor
+      description: 'Sensor with timestamp of next target time (e.g. bedtime / alarm) with device_class: timestamp (set to ''none'' for manual time)'
+      default: none
+      selector:
+        entity:
+          device_class: timestamp
+    manual_time:
+      name: Manual target time
+      description: Time to end the fade every day if timestamp sensor is not set. Settings at or shortly after midnight may behave unexpectedly.
+      default: '22:00:00'
+      selector:
+        time: {}
+    check_entity:
+      name: Additional entity to check before fade starts
+      description: If set, checks if entity is 'on' or 'home' before starting the fade. Use e.g. a (workday) sensor, device_tracker or person entity.
+      default: none
+      selector:
+        entity: {}
+    sunset_duration:
+      name: Fade duration
+      description: The fade will start the configured number of minutes before the target time.
       default: 25
       selector:
         number:
@@ -22,7 +41,7 @@ blueprint:
           mode: slider
     start_brightness:
       name: Starting brightness
-      description: Brightness at the beginning (just before sunset fade starts).
+      description: Brightness at the beginning of the fade (just before sunset effect starts).
       default: 254
       selector:
         number:
@@ -32,7 +51,7 @@ blueprint:
           mode: slider
     end_brightness:
       name: Ending brightness
-      description: Final brightness after fade (usually very low or 0 to turn off).
+      description: Final brightness after fade (usually very low or 0).
       default: 1
       selector:
         number:
@@ -51,122 +70,96 @@ blueprint:
           step: 5.0
           mode: slider
           unit_of_measurement: mired
-    check_entity:
-      name: Additional entity to check before fade starts
-      description: If set, only run if this entity is 'on' or 'home' (e.g. person, workday sensor).
-      default: none
-      selector:
-        entity: {}
     pre_sunset_actions:
-      name: Pre-sunset actions
-      description: Optional actions to run right before the fade starts.
+      name: Pre-fade actions
+      description: Optional actions to run before the sunset fade starts.
       default: []
       selector:
         action: {}
     post_sunset_actions:
-      name: Post-sunset actions
-      description: Optional actions to run after fade ends (around sunset time).
+      name: Post-fade actions
+      description: Optional actions to run after fade ends (around the target time).
       default: []
       selector:
         action: {}
-  source_url: https://gist.github.com/sbyx/96c43b13b90ae1c35b872313ba1d2d2d  # original; consider forking
+  source_url: https://gist.github.com/sbyx/96c43b13b90ae1c35b872313ba1d2d2d  # original sunrise version
 
 variables:
   light_entity: !input 'light_entity'
-  offset_min: !input 'sunset_offset'
-  seconds: '{{ float(offset_min) * 60 }}'
+  sensor: !input 'timestamp_sensor'
+  sunset_duration: !input 'sunset_duration'
   start_brightness: !input 'start_brightness'
   end_brightness: !input 'end_brightness'
-  range_brightness: '{{ float(start_brightness) - float(end_brightness) }}'
+  range_brightness: '{{float(start_brightness)-float(end_brightness)}}'
+  manual_time: !input 'manual_time'
+  seconds: '{{float(sunset_duration) * 60}}'
   max_mired: !input 'max_mired'
-  end_mired: '{{ [state_attr(light_entity, "max_mireds")|int(454), max_mired|int(0)]|max }}'
-  start_mired: '{{ state_attr(light_entity, "min_mireds")|int(153) }}'  # typical daylight ~153-200 mired
-  tick_time: '{{ float(seconds) / float(range_brightness) if range_brightness > 0 else 1 }}'
+  start_mired: '{{[state_attr(light_entity, ''min_mireds'')|int(0), 153]|max}}'  # typical cool/daylight ~153-200
+  end_mired: '{{[state_attr(light_entity, ''max_mireds'')|int(0), max_mired|int(0)]|max}}'
+  tick_time: '{{float(seconds) / float(range_brightness) if range_brightness > 0 else 1}}'
   check_entity: !input 'check_entity'
 
 trigger:
-  - platform: time_pattern
-    minutes: "*"
+- platform: time_pattern
+  minutes: '*'
 
 condition: []
 
 action:
-  # Wait until we have valid sun data
-  - wait_template: '{{ state_attr("sun.sun", "next_setting") != None }}'
-
-  # Wait until we're in the window before sunset
-  - wait_template: >
-      {{ 0 < as_timestamp(state_attr('sun.sun', 'next_setting')) - as_timestamp(now()) <= float(seconds)
-      and states(check_entity) in ['unknown', 'on', 'home'] }}
-
-  # Optional pre-actions
-  - choose: []
-    default: !input 'pre_sunset_actions'
-
-  # Re-check condition (safety)
-  - condition: template
-    value_template: >
-      {{ 0 < as_timestamp(state_attr('sun.sun', 'next_setting')) - as_timestamp(now()) <= float(seconds)
-      and states(check_entity) in ['unknown', 'on', 'home'] }}
-
-  # Turn on / set initial state if needed
-  - choose:
+- wait_template: '{{sensor == ''none'' or as_timestamp(states(sensor), None) != None}}'
+- wait_template: '{{0 < as_timestamp(states(sensor) if sensor != ''none'' else states(''sensor.date'') ~ '' '' ~ manual_time) - as_timestamp(now()) <= float(seconds) and states(check_entity) in [''unknown'', ''on'', ''home'']}}'
+- choose: []
+  default: !input 'pre_sunset_actions'
+- condition: template
+  value_template: '{{sensor == ''none'' or as_timestamp(states(sensor), None) != None}}'
+- condition: template
+  value_template: '{{0 < as_timestamp(states(sensor) if sensor != ''none'' else states(''sensor.date'') ~ '' '' ~ manual_time) - as_timestamp(now()) <= float(seconds) and states(check_entity) in [''unknown'', ''on'', ''home'']}}'
+- choose:
+  - conditions:
+    - '{{state_attr(light_entity, ''min_mireds'') != None}}'
+    sequence:
+    - service: light.turn_on
+      data:
+        brightness: '{{start_brightness}}'
+        color_temp: '{{start_mired}}'
+      target:
+        entity_id: !input 'light_entity'
+  default:
+  - service: light.turn_on
+    data:
+      brightness: '{{start_brightness}}'
+    target:
+      entity_id: !input 'light_entity'
+- repeat:
+    while:
+    - '{{sensor == ''none'' or as_timestamp(states(sensor), None) != None}}'
+    - '{{0 < as_timestamp(states(sensor) if sensor != ''none'' else states(''sensor.date'') ~ '' '' ~ manual_time) - as_timestamp(now()) <= float(seconds)}}'
+    sequence:
+    - delay: '{{tick_time}}'
+    - choose:
       - conditions:
-          - '{{ state_attr(light_entity, "min_mireds") != None }}'
+        - '{{state_attr(light_entity, ''brightness'') | int(0) > end_brightness | int(0)}}'
+        - '{{sensor == ''none'' or as_timestamp(states(sensor), None) != None}}'
+        - '{{0 < as_timestamp(states(sensor) if sensor != ''none'' else states(''sensor.date'') ~ '' '' ~ manual_time) - as_timestamp(now()) <= float(seconds)}}'
         sequence:
+        - choose:
+          - conditions:
+            - '{{state_attr(light_entity, ''min_mireds'') != None}}'
+            sequence:
+            - service: light.turn_on
+              data:
+                brightness: '{{(float(end_brightness) + (float(range_brightness) * (as_timestamp(states(sensor) if sensor != ''none'' else states(''sensor.date'') ~ '' '' ~ manual_time) - as_timestamp(now())) / float(seconds))) | int(0)}}'
+                color_temp: '{{(float(start_mired) + (float(end_mired) - float(start_mired)) * (1 - ((as_timestamp(states(sensor) if sensor != ''none'' else states(''sensor.date'') ~ '' '' ~ manual_time) - as_timestamp(now())) / float(seconds)))) | int(0)}}'
+              target:
+                entity_id: !input 'light_entity'
+          default:
           - service: light.turn_on
             data:
-              brightness: '{{ start_brightness }}'
-              color_temp: '{{ start_mired }}'
+              brightness: '{{(float(end_brightness) + (float(range_brightness) * (as_timestamp(states(sensor) if sensor != ''none'' else states(''sensor.date'') ~ '' '' ~ manual_time) - as_timestamp(now())) / float(seconds))) | int(0)}}'
             target:
               entity_id: !input 'light_entity'
-    default:
-      - service: light.turn_on
-        data:
-          brightness: '{{ start_brightness }}'
-        target:
-          entity_id: !input 'light_entity'
-
-  # Fade loop
-  - repeat:
-      while:
-        - '{{ 0 < as_timestamp(state_attr("sun.sun", "next_setting")) - as_timestamp(now()) <= float(seconds) }}'
-      sequence:
-        - delay: '{{ tick_time }}'
-
-        - choose:
-            - conditions:
-                - '{{ state_attr(light_entity, "brightness") | int(0) > end_brightness | int(0) }}'
-              sequence:
-                - choose:
-                    - conditions:
-                        - '{{ state_attr(light_entity, "min_mireds") != None }}'
-                      sequence:
-                        - service: light.turn_on
-                          data:
-                            brightness: >
-                              {{ (float(end_brightness) + (float(range_brightness) *
-                                  (as_timestamp(state_attr('sun.sun', 'next_setting')) - as_timestamp(now()))
-                                  / float(seconds))) | int(0) }}
-                            color_temp: >
-                              {{ (float(start_mired) + (float(end_mired) - float(start_mired)) *
-                                  (1 - ((as_timestamp(state_attr('sun.sun', 'next_setting')) - as_timestamp(now()))
-                                  / float(seconds)))) | int(0) }}
-                          target:
-                            entity_id: !input 'light_entity'
-                  default:
-                    - service: light.turn_on
-                      data:
-                        brightness: >
-                          {{ (float(end_brightness) + (float(range_brightness) *
-                              (as_timestamp(state_attr('sun.sun', 'next_setting')) - as_timestamp(now()))
-                              / float(seconds))) | int(0) }}
-                      target:
-                        entity_id: !input 'light_entity'
-
-  # Optional post-actions (around sunset)
-  - choose: []
-    default: !input 'post_sunset_actions'
+- choose: []
+  default: !input 'post_sunset_actions'
 
 mode: single
 max_exceeded: silent
