@@ -1,6 +1,6 @@
 blueprint:
   name: Sunset Light Fade Off
-  description: 'Gradually fade lights to off after sunset with color temperature transition for multicolor lights'
+  description: Gradually fade lights to off after sunset with color temperature transition
   domain: automation
   input:
     offset:
@@ -18,7 +18,7 @@ blueprint:
             domain: light
     start_brightness:
       name: Start brightness
-      description: Brightness at the beginning of the transition (100 = full)
+      description: Brightness at the beginning (100 = full)
       default: 100
       selector:
         number:
@@ -27,7 +27,7 @@ blueprint:
           unit_of_measurement: '%'
     end_brightness:
       name: End brightness
-      description: Brightness at the end of the transition (0 = off)
+      description: Brightness at the end (0 = off)
       default: 0
       selector:
         number:
