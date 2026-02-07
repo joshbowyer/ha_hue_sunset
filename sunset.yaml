@@ -3,23 +3,15 @@ blueprint:
   description: 'Gradually fade lights to off after sunset with color temperature transition for multicolor lights'
   domain: automation
   input:
-    event:
-      name: Event
-      description: Sunset
-      selector:
-        select:
-          options:
-            - Sunset
-      default: Sunset
     offset:
       name: Offset
-      description: Offset from sunset time
+      description: Offset from sunset time (e.g. +1:00:00 for 1 hour after)
       default: '+1:00:00'
       selector:
         text:
     lights:
       name: Lights
-      description: The lights to fade
+      description: The lights to fade off
       selector:
         target:
           entity:
@@ -69,32 +61,15 @@ blueprint:
           min: 2000
           max: 6500
           unit_of_measurement: K
-    next_alarm:
-      name: Next alarm sensor
-      description: Sensor with timestamp of next alarm (set to 'none' for daily behavior)
-      default: none
-      selector:
-        entity:
-          domain: sensor
-          device_class: timestamp
 
 mode: single
 max_exceeded: silent
 
 trigger:
   - platform: sun
-    event: !input event
+    event: sunset
     offset: !input offset
     id: sunset_trigger
-
-condition:
-  - condition: or
-    conditions:
-      - condition: state
-        entity_id: !input next_alarm
-        state: 'none'
-      - condition: template
-        value_template: "{{ (now() - as_timestamp(states('!input next_alarm'))) < 86400 }}"
 
 action:
   - service: light.turn_on
