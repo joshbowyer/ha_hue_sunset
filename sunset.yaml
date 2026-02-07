@@ -1,193 +1,157 @@
 blueprint:
   name: Sunset light effect
-  description: >-
-    A sunset effect that gradually dims and warms a light toward sunset or a
-    given timestamp, then turns it off. Note: Requires date_time_iso sensor.
+  description: >
+    Gradually dims and warms a light toward a target time (sunset style), then
+    turns it off. Based on the wake-up sunrise blueprint.
   domain: automation
-  input:
-    light_entity:
-      name: Light entity
-      description: The light to control. Turning it off during the effect will keep it off.
-      selector:
-        entity:
-          domain: light
-    timestamp_sensor:
-      name: Target timestamp sensor
-      description: 'Sensor with timestamp of sunset trigger (e.g., next alarm or fixed timestamp).'
-      default: none
-      selector:
-        entity:
-          device_class: timestamp
-    manual_time:
-      name: Manual target time
-      description: Time to trigger sunset effect if timestamp_sensor is not set.
-      default: '19:00:00'
-      selector:
-        time: {}
-    check_entity:
-      name: Additional entity to check before effect is triggered
-      description: If set, only triggers when this entity is 'on' or 'home'.
-      default: none
-      selector:
-        entity: {}
-    sunset_offset:
-      name: Sunset offset duration
-      description: Minutes before the target time or sunset to begin the effect.
-      default: 25
-      selector:
-        number:
-          min: 5.0
-          max: 60.0
-          step: 1.0
-          unit_of_measurement: min
-    start_brightness:
-      name: Start brightness (before sunset effect)
-      default: 254
-      selector:
-        number:
-          min: 5
-          max: 255
-          step: 1
-    end_brightness:
-      name: End brightness (at sunset or target)
-      default: 1
-      selector:
-        number:
-          min: 0
-          max: 255
-          step: 1
-    min_mired:
-      name: Lowest color temperature (warmest)
-      description: 'Minimum color temperature to use for sunset (warm end).'
-      default: 500
-      selector:
-        number:
-          min: 0
-          max: 500
-          step: 5
-          unit_of_measurement: mired
-    pre_sunset_actions:
-      name: Pre-sunset actions
-      description: Optional actions before sunset effect starts.
-      default: []
-      selector:
-        action: {}
-    post_sunset_actions:
-      name: Post-sunset actions
-      description: Optional actions after sunset effect ends.
-      default: []
-      selector:
-        action: {}
-  variables:
-    light_entity: !input 'light_entity'
-    sensor: !input 'timestamp_sensor'
-    sunset_duration: !input 'sunset_offset'
-    start_brightness: !input 'start_brightness'
-    end_brightness: !input 'end_brightness'
-    range_brightness: '{{ float(start_brightness) - float(end_brightness) }}'
-    manual_time: !input 'manual_time'
-    seconds: '{{ float(sunset_duration) * 60 }}'
-    max_mired: '{{ state_attr(light_entity, ''max_mireds'') }}'
-    start_mired: '{{ [state_attr(light_entity, ''min_mireds'')|int(0), min_mired|int(0)]|min }}'
-    end_mired: '{{ state_attr(light_entity, ''max_mireds'') }}'
-    tick_time: '{{ float(seconds) / float(range_brightness) if range_brightness > 0 else 1 }}'
-    check_entity: !input 'check_entity'
-  trigger:
-    - platform: time_pattern
-      minutes: '*'
-  condition: []
-  action:
-    - wait_template: '{{ sensor == ''none'' or as_timestamp(states(sensor), None) != None }}'
-    - wait_template: >-
-        {{ 0 < as_timestamp(states(sensor)
-        if sensor != ''none'' else states(''sensor.date'') ~ '' '' ~ manual_time)
-        - as_timestamp(states(''sensor.date_time_iso'')) <= float(seconds)
-        and states(check_entity) in [''unknown'', ''on'', ''home''] }}
-    - choose:
-        - default: !input 'pre_sunset_actions'
-    - condition: template
-      value_template: >-
-        {{ sensor == ''none'' or as_timestamp(states(sensor), None) != None }}
-    - condition: template
-      value_template: >-
-        {{ 0 < as_timestamp(states(sensor)
-        if sensor != ''none'' else states(''sensor.date'') ~ '' '' ~ manual_time)
-        - as_timestamp(now()) <= float(seconds)
-        and states(check_entity) in [''unknown'', ''on'', ''home''] }}
-    - choose:
-        - conditions:
-            - '{{ state_attr(light_entity, ''min_mireds'') != None }}'
-          sequence:
-            - service: light.turn_on
-              data:
-                brightness: '{{ start_brightness }}'
-                color_temp: '{{ end_mired }}'
-              target:
-                entity_id: !input 'light_entity'
-        - default:
-            - service: light.turn_on
-              data:
-                brightness: '{{ start_brightness }}'
-              target:
-                entity_id: !input 'light_entity'
-    - repeat:
-        while:
-          - '{{ sensor == ''none'' or as_timestamp(states(sensor), None) != None }}'
-          - '{{ 0 < as_timestamp(states(sensor)
-              if sensor != ''none'' else states(''sensor.date'') ~ '' '' ~ manual_time)
-              - as_timestamp(now()) <= float(seconds) }}'
-        sequence:
-          - delay: '{{ tick_time }}'
-          - choose:
-              - conditions:
-                  - '{{ state_attr(light_entity, ''brightness'') | int(0)
-                     > end_brightness | int }}'
-                  - '{{ sensor == ''none'' or as_timestamp(states(sensor), None) != None }}'
-                  - '{{ 0 < as_timestamp(states(sensor)
-                     if sensor != ''none'' else states(''sensor.date'') ~ '' '' ~ manual_time)
-                     - as_timestamp(now()) <= float(seconds) }}'
-                sequence:
-                  - choose:
-                      - conditions:
-                          - '{{ state_attr(light_entity, ''min_mireds'') != None }}'
-                        sequence:
-                          - service: light.turn_on
-                            data:
-                              brightness: >-
-                                '{{ (float(start_brightness)
-                                    - (float(range_brightness)
-                                    * ((as_timestamp(states(sensor)
-                                    if sensor != ''none''
-                                    else states(''sensor.date'') ~ '' '' ~ manual_time)
-                                    - as_timestamp(now())) / float(seconds)))
-                                    ) | int(0) }}'
-                              color_temp: >-
-                                '{{ (float(end_mired)
-                                    + (float(start_mired) - float(end_mired))
-                                    * ((as_timestamp(states(sensor)
-                                    if sensor != ''none''
-                                    else states(''sensor.date'') ~ '' '' ~ manual_time)
-                                    - as_timestamp(now())) / float(seconds)))
-                                    | int(0) }}'
-                            target:
-                              entity_id: !input 'light_entity'
-                      - default:
-                          - service: light.turn_on
-                            data:
-                              brightness: >-
-                                '{{ (float(start_brightness)
-                                    - (float(range_brightness)
-                                    * ((as_timestamp(states(sensor)
-                                    if sensor != ''none''
-                                    else states(''sensor.date'') ~ '' '' ~ manual_time)
-                                    - as_timestamp(now())) / float(seconds)))
-                                    ) | int(0) }}'
-                            target:
-                              entity_id: !input 'light_entity'
-              - default: []
-    - service: light.turn_off
-      target:
-        entity_id: !input 'light_entity'
-    - choose:
-        - default: !input 'post_sunset_actions'
-  mode: single
+input:
+  light_entity:
+    name: Light entity
+    selector:
+      entity:
+        domain: light
+  timestamp_sensor:
+    name: Target timestamp sensor
+    default: none
+    selector:
+      entity:
+        device_class: timestamp
+  manual_time:
+    name: Manual target time
+    default: 19:00:00
+    selector:
+      time: {}
+  check_entity:
+    name: Optional check entity
+    default: none
+    selector:
+      entity: {}
+  sunset_duration:
+    name: Sunset duration
+    description: Minutes before target time to start dimming
+    default: 25
+    selector:
+      number:
+        min: 5
+        max: 90
+        step: 1
+        unit_of_measurement: min
+  start_brightness:
+    name: Start brightness
+    default: 254
+    selector:
+      number:
+        min: 1
+        max: 255
+  end_brightness:
+    name: End brightness
+    default: 1
+    selector:
+      number:
+        min: 0
+        max: 255
+  pre_sunset_actions:
+    name: Pre-sunset actions
+    default: []
+    selector:
+      action: {}
+  post_sunset_actions:
+    name: Post-sunset actions
+    default: []
+    selector:
+      action: {}
+variables:
+  light_entity: light_entity
+  sensor: timestamp_sensor
+  manual_time: manual_time
+  duration: sunset_duration
+  start_brightness: start_brightness
+  end_brightness: end_brightness
+  range_brightness: "{{ start_brightness - end_brightness }}"
+  seconds: "{{ duration * 60 }}"
+  tick_time: |
+    {{ (seconds / range_brightness) if range_brightness > 0 else 1 }}
+  check_entity: check_entity
+trigger:
+  - platform: time_pattern
+    minutes: "*"
+condition: []
+action:
+  - wait_template: |
+      {{ sensor == 'none'
+         or as_timestamp(states(sensor), none) != none }}
+  - wait_template: |
+      {{
+        0 <
+        (
+          as_timestamp(
+            states(sensor)
+            if sensor != 'none'
+            else states('sensor.date') ~ ' ' ~ manual_time
+          )
+          - as_timestamp(states('sensor.date_time_iso'))
+        )
+        <= seconds
+        and (
+          check_entity == 'none'
+          or states(check_entity) in ['on', 'home', 'unknown']
+        )
+      }}
+  - choose:
+      - conditions: []
+        sequence: pre_sunset_actions
+  - service: light.turn_on
+    target:
+      entity_id: light_entity
+    data:
+      brightness: "{{ start_brightness }}"
+  - repeat:
+      while:
+        - condition: template
+          value_template: |
+            {{
+              0 <
+              (
+                as_timestamp(
+                  states(sensor)
+                  if sensor != 'none'
+                  else states('sensor.date') ~ ' ' ~ manual_time
+                )
+                - as_timestamp(now())
+              )
+              <= seconds
+            }}
+      sequence:
+        - delay:
+            seconds: "{{ tick_time | int(1) }}"
+        - service: light.turn_on
+          target:
+            entity_id: light_entity
+          data:
+            brightness: |
+              {{
+                (
+                  start_brightness
+                  - (
+                      range_brightness
+                      * (
+                          (
+                            as_timestamp(
+                              states(sensor)
+                              if sensor != 'none'
+                              else states('sensor.date') ~ ' ' ~ manual_time
+                            )
+                            - as_timestamp(now())
+                          )
+                          / seconds
+                        )
+                    )
+                ) | int
+              }}
+  - service: light.turn_off
+    target:
+      entity_id: light_entity
+  - choose:
+      - conditions: []
+        sequence: post_sunset_actions
+mode: single
