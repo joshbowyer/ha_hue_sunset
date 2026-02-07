@@ -16,6 +16,13 @@ blueprint:
         target:
           entity:
             domain: light
+    manual_time:
+      name: Manual alarm time
+      description: Time to trigger alarm every day if timestamp sensor is not set.
+        Settings at or shortly after midnight will not work as expected!
+      default: '7:00:00'
+      selector:
+        time: {}
     start_brightness:
       name: Start brightness
       description: Brightness at the beginning of the transition
