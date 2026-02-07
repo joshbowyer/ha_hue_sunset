@@ -1,94 +1,172 @@
 blueprint:
-  name: Sunset Light Fade Off
-  description: Gradually fade lights to off after sunset with color temperature transition
+  name: Wake-down light with sunset effect
+  description: 'A fade-to-dim light automation with sunset color temperature effect. Starts X minutes before actual sunset. Note: Requires the Sun integration and sensor.date_time_iso (or use now()).'
   domain: automation
   input:
-    offset:
-      name: Offset from sunset
-      description: Time offset from sunset (e.g. '+1:00:00' for 1 hour after)
-      default: '+1:00:00'
+    light_entity:
+      name: Light entity
+      description: The light to control during sunset fade. Turning it off during the effect will keep it off.
       selector:
-        text:
-    lights:
-      name: Lights
-      description: The lights to fade off
-      selector:
-        target:
-          entity:
-            domain: light
-    start_brightness:
-      name: Start brightness
-      description: Brightness at the beginning (100 = full)
-      default: 100
+        entity:
+          domain: light
+    sunset_offset:
+      name: Start before sunset
+      description: The fade will start this many minutes before sunset.
+      default: 25
       selector:
         number:
-          min: 0
-          max: 100
-          unit_of_measurement: '%'
+          min: 5.0
+          max: 60.0
+          step: 5.0
+          unit_of_measurement: min
+          mode: slider
+    start_brightness:
+      name: Starting brightness
+      description: Brightness at the beginning (just before sunset fade starts).
+      default: 254
+      selector:
+        number:
+          min: 5.0
+          max: 255.0
+          step: 1.0
+          mode: slider
     end_brightness:
-      name: End brightness
-      description: Brightness at the end (0 = off)
+      name: Ending brightness
+      description: Final brightness after fade (usually very low or 0 to turn off).
+      default: 1
+      selector:
+        number:
+          min: 0.0
+          max: 255.0
+          step: 1.0
+          mode: slider
+    max_mired:
+      name: Maximum (warmest) color temperature
+      description: 'The warmest color temp to reach at the end. (0 = use light''s max_mireds)'
       default: 0
       selector:
         number:
-          min: 0
-          max: 100
-          unit_of_measurement: '%'
-    transition:
-      name: Transition time
-      description: Time to fade from start to end brightness
-      default: 1800
+          min: 0.0
+          max: 500.0
+          step: 5.0
+          mode: slider
+          unit_of_measurement: mired
+    check_entity:
+      name: Additional entity to check before fade starts
+      description: If set, only run if this entity is 'on' or 'home' (e.g. person, workday sensor).
+      default: none
       selector:
-        number:
-          min: 1
-          max: 3600
-          unit_of_measurement: seconds
-    start_color_temp:
-      name: Start color temperature
-      description: Color temperature at the beginning (neutral daylight)
-      default: 4000
+        entity: {}
+    pre_sunset_actions:
+      name: Pre-sunset actions
+      description: Optional actions to run right before the fade starts.
+      default: []
       selector:
-        number:
-          min: 2000
-          max: 6500
-          unit_of_measurement: K
-    end_color_temp:
-      name: End color temperature
-      description: Color temperature at the end (warm sunset tones)
-      default: 2700
+        action: {}
+    post_sunset_actions:
+      name: Post-sunset actions
+      description: Optional actions to run after fade ends (around sunset time).
+      default: []
       selector:
-        number:
-          min: 2000
-          max: 6500
-          unit_of_measurement: K
+        action: {}
+  source_url: https://gist.github.com/sbyx/96c43b13b90ae1c35b872313ba1d2d2d  # original; consider forking
+
+variables:
+  light_entity: !input 'light_entity'
+  offset_min: !input 'sunset_offset'
+  seconds: '{{ float(offset_min) * 60 }}'
+  start_brightness: !input 'start_brightness'
+  end_brightness: !input 'end_brightness'
+  range_brightness: '{{ float(start_brightness) - float(end_brightness) }}'
+  max_mired: !input 'max_mired'
+  end_mired: '{{ [state_attr(light_entity, "max_mireds")|int(454), max_mired|int(0)]|max }}'
+  start_mired: '{{ state_attr(light_entity, "min_mireds")|int(153) }}'  # typical daylight ~153-200 mired
+  tick_time: '{{ float(seconds) / float(range_brightness) if range_brightness > 0 else 1 }}'
+  check_entity: !input 'check_entity'
+
+trigger:
+  - platform: time_pattern
+    minutes: "*"
+
+condition: []
+
+action:
+  # Wait until we have valid sun data
+  - wait_template: '{{ state_attr("sun.sun", "next_setting") != None }}'
+
+  # Wait until we're in the window before sunset
+  - wait_template: >
+      {{ 0 < as_timestamp(state_attr('sun.sun', 'next_setting')) - as_timestamp(now()) <= float(seconds)
+      and states(check_entity) in ['unknown', 'on', 'home'] }}
+
+  # Optional pre-actions
+  - choose: []
+    default: !input 'pre_sunset_actions'
+
+  # Re-check condition (safety)
+  - condition: template
+    value_template: >
+      {{ 0 < as_timestamp(state_attr('sun.sun', 'next_setting')) - as_timestamp(now()) <= float(seconds)
+      and states(check_entity) in ['unknown', 'on', 'home'] }}
+
+  # Turn on / set initial state if needed
+  - choose:
+      - conditions:
+          - '{{ state_attr(light_entity, "min_mireds") != None }}'
+        sequence:
+          - service: light.turn_on
+            data:
+              brightness: '{{ start_brightness }}'
+              color_temp: '{{ start_mired }}'
+            target:
+              entity_id: !input 'light_entity'
+    default:
+      - service: light.turn_on
+        data:
+          brightness: '{{ start_brightness }}'
+        target:
+          entity_id: !input 'light_entity'
+
+  # Fade loop
+  - repeat:
+      while:
+        - '{{ 0 < as_timestamp(state_attr("sun.sun", "next_setting")) - as_timestamp(now()) <= float(seconds) }}'
+      sequence:
+        - delay: '{{ tick_time }}'
+
+        - choose:
+            - conditions:
+                - '{{ state_attr(light_entity, "brightness") | int(0) > end_brightness | int(0) }}'
+              sequence:
+                - choose:
+                    - conditions:
+                        - '{{ state_attr(light_entity, "min_mireds") != None }}'
+                      sequence:
+                        - service: light.turn_on
+                          data:
+                            brightness: >
+                              {{ (float(end_brightness) + (float(range_brightness) *
+                                  (as_timestamp(state_attr('sun.sun', 'next_setting')) - as_timestamp(now()))
+                                  / float(seconds))) | int(0) }}
+                            color_temp: >
+                              {{ (float(start_mired) + (float(end_mired) - float(start_mired)) *
+                                  (1 - ((as_timestamp(state_attr('sun.sun', 'next_setting')) - as_timestamp(now()))
+                                  / float(seconds)))) | int(0) }}
+                          target:
+                            entity_id: !input 'light_entity'
+                  default:
+                    - service: light.turn_on
+                      data:
+                        brightness: >
+                          {{ (float(end_brightness) + (float(range_brightness) *
+                              (as_timestamp(state_attr('sun.sun', 'next_setting')) - as_timestamp(now()))
+                              / float(seconds))) | int(0) }}
+                      target:
+                        entity_id: !input 'light_entity'
+
+  # Optional post-actions (around sunset)
+  - choose: []
+    default: !input 'post_sunset_actions'
 
 mode: single
 max_exceeded: silent
-
-trigger:
-  - platform: sun
-    event: sunset
-    offset: !input offset
-
-action:
-  - service: light.turn_on
-    target: !input lights
-    data:
-      brightness_pct: !input start_brightness
-      transition: !input transition
-      color_temp_kelvin: !input start_color_temp
-
-  - delay:
-      seconds: !input transition
-
-  - service: light.turn_on
-    target: !input lights
-    data:
-      brightness_pct: !input end_brightness
-      transition: 1
-      color_temp_kelvin: !input end_color_temp
-
-  - service: light.turn_off
-    target: !input lights
-    data:
-      transition: 1
